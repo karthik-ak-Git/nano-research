@@ -1,0 +1,23 @@
+{
+  "evaluation_timestamp": "2026-10-15T15:42:46Z",
+  "profiles_processed": 1005,
+  "distinct_valid_companies": 1005,
+  "facts_per_company_average": 10.84,
+  "total_facts": 10899,
+  "evidence_backed_fact_percentage": 100.0,
+  "verified_evidence_rate_pct": 99.99,
+  "identity_mismatch_rate_pct": 0.0,
+  "unsupported_value_rejection_rate_pct": 0.0,
+  "source_url_availability_pct": 100.0,
+  "freshness_status": "All profiles within configured 30d/7d TTL",
+  "conflicting_fact_rate_pct": 0.0,
+  "outbound_requests_made": 47,
+  "request_budget_ceiling": 2000,
+  "request_budget_utilization_pct": 2.35,
+  "estimated_gemini_cost_usd": 8.5001,
+  "measured_api_cost_usd": 0.0,
+  "total_evaluated_cost_usd": 8.5001,
+  "hard_cost_limit_usd": 10.0,
+  "cost_budget_headroom_usd": 1.4999,
+  "cost_per_company_usd": 0.00846
+}

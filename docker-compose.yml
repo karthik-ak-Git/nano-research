@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  agent-cli:
+    build: .
+    image: norwegian-company-agent:latest
+    container_name: norwegian-company-agent-cli
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./profiles:/app/profiles
+      - ./reports:/app/reports
+    command: ["stats"]
+
+  agent-api:
+    build: .
+    image: norwegian-company-agent:latest
+    container_name: norwegian-company-agent-api
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./profiles:/app/profiles
+      - ./reports:/app/reports
+    ports:
+      - "8000:8000"
+    entrypoint: ["uvicorn"]
+    command: ["company_agent.api:app", "--host", "0.0.0.0", "--port", "8000"]
