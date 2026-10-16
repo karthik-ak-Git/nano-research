@@ -10,7 +10,7 @@
 
 - **Repository Remote:** `https://github.com/karthik-ak-Git/nano-research.git`
 - **Active Branch:** `main`
-- **Exact Commit SHA:** `PENDING_COMMIT_SHA`
+- **Exact Commit SHA:** `975103fa72bb3a1db727f7fef48ba74f0c43c6eb`
 - **Execution Interface:** Single-command Typer CLI (`company-agent`) & Optional FastAPI Service
 
 ---
