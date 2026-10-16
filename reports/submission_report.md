@@ -93,15 +93,15 @@ All metrics below are calculated directly from actual SQLite database records by
 | **Distinct Valid Profiles Maintained** | >= 1,000 profiles | **1,005 profiles** | **PASS** | Counted from SQLite `companies` table |
 | **Organisation Number Validity (Mod11)** | 100.0% Valid | **1,005 / 1,005 (100.0%)** | **PASS** | Dynamically validated by Mod11 algorithm across all stored IDs |
 | **Profile Freshness** | Within configured TTL | **1,005 / 1,005 (100.0%)** | **PASS** | Evaluated against `updated_at` timestamps (30d identity TTL) |
-| **Total Fact Provenance Records** | N/A | **11,096 facts** (11,074 active, 22 archived) | **PASS** | Counted from SQLite `facts` table |
+| **Total Fact Provenance Records** | N/A | **11,098 facts** (11,074 active, 24 archived) | **PASS** | Counted from SQLite `facts` table |
 | **Facts per Company Average** | N/A | **11.04 facts/profile** | **PASS** | Calculated as total facts divided by total companies |
-| **Evidence-Backed Fact Rate** | High Quality | **100.0% (11,096 / 11,096)** | **PASS** | Every stored fact has a linked `fact_evidence` record |
-| **Verified Evidence Rate** | High Quality | **99.84% (11,078 / 11,096)** | **PASS** | Records with `verification_status = 'VERIFIED'` |
+| **Evidence-Backed Fact Rate** | High Quality | **100.0% (11,098 / 11,098)** | **PASS** | Every stored fact has a linked `fact_evidence` record |
+| **Verified Evidence Rate** | High Quality | **99.84% (11,080 / 11,098)** | **PASS** | Records with `verification_status = 'VERIFIED'` |
 | **Identity Mismatch Rate** | 0.0% | **0.0% (0 mismatches)** | **PASS** | Records with `identity_match = 'MISMATCH'` |
 | **Source URL Availability** | 100.0% | **100.0% (1,058 / 1,058)** | **PASS** | All evidence sources have non-empty valid URLs |
-| **Historical Changes Recorded** | Change Explanation | **22 changes recorded** | **PASS** | Material differences recorded in `change_events` table |
+| **Historical Changes Recorded** | Change Explanation | **24 changes recorded** | **PASS** | Material differences recorded in `change_events` table |
 | **Unsupported Value Rejection Rate** | High Quality | **Unavailable (Unmeasured)** | **PASS** | Enforced by ingestion logic: ungrounded candidate facts are quarantined prior to storage; rejection counter is not stored in DB tables |
-| **Automated Unit & Integration Tests** | All Pass | **34 / 34 Passed (100%)** | **PASS** | Executed via `uv run pytest tests/ -v` (runtime: 11.24s) |
+| **Automated Unit & Integration Tests** | All Pass | **34 / 34 Passed (100%)** | **PASS** | Executed via `uv run pytest tests/ -v` (runtime: 14.63s) |
 
 ---
 

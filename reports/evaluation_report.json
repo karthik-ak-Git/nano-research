@@ -1,16 +1,16 @@
 {
-  "evaluation_timestamp": "2026-10-16T11:28:55.812186+00:00",
+  "evaluation_timestamp": "2026-10-16T11:32:21.618551+00:00",
   "database_records": {
     "distinct_valid_companies": 1005,
     "mod11_valid_checksum_count": 1005,
     "mod11_invalid_checksum_count": 0,
     "mod11_valid_checksum_pct": 100.0,
-    "total_facts": 11096,
+    "total_facts": 11098,
     "current_active_facts": 11074,
-    "historical_archived_facts": 22,
+    "historical_archived_facts": 24,
     "facts_per_company_average": 11.04,
-    "total_evidence_records": 11096,
-    "verified_evidence_records": 11078,
+    "total_evidence_records": 11098,
+    "verified_evidence_records": 11080,
     "verified_evidence_rate_pct": 99.84,
     "evidence_backed_fact_percentage": 100.0,
     "identity_mismatch_count": 0,
@@ -18,7 +18,7 @@
     "total_sources": 1058,
     "sources_with_valid_url": 1058,
     "source_url_availability_pct": 100.0,
-    "total_historical_changes_recorded": 22,
+    "total_historical_changes_recorded": 24,
     "freshness": {
       "fresh_profiles_count": 1005,
       "stale_profiles_count": 0,
@@ -33,20 +33,20 @@
     }
   },
   "cumulative_resource_and_cost_accounting": {
-    "total_outbound_requests": 357,
+    "total_outbound_requests": 358,
     "registry_requests": 262,
-    "browser_requests": 95,
+    "browser_requests": 96,
     "retry_count": 7,
     "request_budget_ceiling": 2000,
-    "request_budget_utilization_pct": 17.85,
-    "gemini_model_calls": 19,
-    "gemini_input_tokens": 6920,
-    "gemini_output_tokens": 2574,
-    "estimated_gemini_cost_usd": 0.00181,
+    "request_budget_utilization_pct": 17.9,
+    "gemini_model_calls": 20,
+    "gemini_input_tokens": 7420,
+    "gemini_output_tokens": 2674,
+    "estimated_gemini_cost_usd": 0.00191,
     "measured_api_cost_usd": 0.0,
-    "total_evaluated_cost_usd": 0.00181,
+    "total_evaluated_cost_usd": 0.00191,
     "hard_cost_limit_usd": 10.0,
-    "cost_budget_headroom_usd": 9.99819
+    "cost_budget_headroom_usd": 9.99809
   },
   "evaluations": {
     "cached_100_company_run": {
