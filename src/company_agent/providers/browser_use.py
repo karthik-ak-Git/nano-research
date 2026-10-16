@@ -96,7 +96,13 @@ class BrowserUseProvider(BaseBrowserProvider):
                     import httpx
                     from company_agent.extraction import extract_clean_text_from_html
                     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                        budget_manager.check_budget_available()
                         resp = await client.get(url, headers={"User-Agent": settings.USER_AGENT})
+                        budget_manager.record_request(
+                            provider="browser_use_fallback",
+                            endpoint=url,
+                            status_code=resp.status_code,
+                        )
                         cleaned = extract_clean_text_from_html(resp.text)
                         return BrowserResult(
                             url=url,

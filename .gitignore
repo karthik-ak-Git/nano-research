@@ -57,3 +57,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Vendored reference & large data files
+refernce/
+profiles/*.json
+!profiles/seed_manifest.json

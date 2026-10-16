@@ -18,6 +18,24 @@ def test_is_material_difference():
     assert is_material_difference(21000, 21231) is True
     assert is_material_difference(5000000.0, 5000000.0) is False
 
+    # Formatting, newlines, HTML entities, and non-breaking space invariance
+    assert is_material_difference("Equinor ASA\nForusbeen 50", "Equinor ASA  Forusbeen 50") is False
+    assert is_material_difference("Oil &amp; Gas", "Oil & Gas") is False
+    assert is_material_difference("Stavanger\xa0Norway", "Stavanger Norway") is False
+
+    # Navigational boilerplate invariance
+    desc1 = "Skip to main content. Equinor is a leading broad international energy company."
+    desc2 = "Equinor is a leading broad international energy company"
+    assert is_material_difference(desc1, desc2) is False
+
+    # Meaningful description change
+    desc_diff = "Equinor is a commercial retail fashion outlet in Oslo."
+    assert is_material_difference(desc1, desc_diff) is True
+
+    # List invariance
+    assert is_material_difference(["Oil", "Energy"], ["energy", "oil"]) is False
+    assert is_material_difference(["Oil", "Energy"], ["Renewables", "Wind"]) is True
+
 
 def test_detect_field_change_explanation():
     # Employee change

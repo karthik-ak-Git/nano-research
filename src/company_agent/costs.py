@@ -62,13 +62,13 @@ def generate_cost_report(companies_processed: int = 1) -> CostReport:
             from company_agent.models import RequestUsage, ModelUsage
             from sqlalchemy import func
             with get_db_session() as session:
-                req_count = session.query(func.count(RequestUsage.id)).scalar() or 0
-                retry_count = session.query(func.sum(RequestUsage.retries)).scalar() or 0
-                gemini_calls = session.query(func.count(ModelUsage.id)).scalar() or 0
-                in_tokens = session.query(func.sum(ModelUsage.input_tokens)).scalar() or 0
-                out_tokens = session.query(func.sum(ModelUsage.output_tokens)).scalar() or 0
-                est_cost = session.query(func.sum(ModelUsage.estimated_cost)).scalar() or 0.0
-                meas_cost = session.query(func.sum(ModelUsage.measured_cost)).scalar() or 0.0
+                req_count = session.query(func.count(RequestUsage.id)).filter(~RequestUsage.run_id.like("test%")).scalar() or 0
+                retry_count = session.query(func.sum(RequestUsage.retries)).filter(~RequestUsage.run_id.like("test%")).scalar() or 0
+                gemini_calls = session.query(func.count(ModelUsage.id)).filter(~ModelUsage.run_id.like("test%")).scalar() or 0
+                in_tokens = session.query(func.sum(ModelUsage.input_tokens)).filter(~ModelUsage.run_id.like("test%")).scalar() or 0
+                out_tokens = session.query(func.sum(ModelUsage.output_tokens)).filter(~ModelUsage.run_id.like("test%")).scalar() or 0
+                est_cost = session.query(func.sum(ModelUsage.estimated_cost)).filter(~ModelUsage.run_id.like("test%")).scalar() or 0.0
+                meas_cost = session.query(func.sum(ModelUsage.measured_cost)).filter(~ModelUsage.run_id.like("test%")).scalar() or 0.0
         except Exception:
             pass
 

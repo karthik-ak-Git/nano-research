@@ -80,7 +80,8 @@ class GeminiClient:
             f"Rules:\n"
             f"1. Extract ONLY facts directly evidenced in the provided passages.\n"
             f"2. Never hallucinate, extrapolate, or guess dates, currencies, or numbers.\n"
-            f"3. Return strict JSON matching the schema below.\n\n"
+            f"3. Return strict JSON matching the schema below.\n"
+            f"4. For description, you MUST provide 'description_excerpt' containing the exact verbatim sentence from the passages supporting it.\n\n"
             f"Evidence Passages:\n{combined_text}\n\n"
             f"Schema format:\n"
             f"{{\n"
@@ -88,6 +89,7 @@ class GeminiClient:
             f'  "management_leadership": [string],\n'
             f'  "employee_count": integer or null,\n'
             f'  "description": string or null,\n'
+            f'  "description_excerpt": string or null,\n'
             f'  "business_activities": [string],\n'
             f'  "explanation": string\n'
             f"}}"
@@ -107,6 +109,39 @@ class GeminiClient:
 
             raw_text = response.text or "{}"
             parsed = self._clean_and_parse_json(raw_text)
+
+            # Strict evidence grounding verification: reject ungrounded or fabricated facts
+            if parsed.get("description"):
+                desc_text = str(parsed["description"]).strip()
+                excerpt = str(parsed.get("description_excerpt") or "").strip()
+                if excerpt and excerpt.lower() in combined_text.lower():
+                    parsed["description_excerpt"] = excerpt
+                else:
+                    # Check if key words of description appear in the evidence text
+                    words = [w for w in re.findall(r"\w+", desc_text.lower()) if len(w) > 4]
+                    matching_words = [w for w in words if w in combined_text.lower()]
+                    if words and (len(matching_words) / len(words) >= 0.5):
+                        # Locate the best matching snippet as excerpt
+                        for snip in bounded_snippets:
+                            if any(w in snip.lower() for w in matching_words):
+                                parsed["description_excerpt"] = snip[:300]
+                                break
+                    else:
+                        logger.warning("Rejecting unsupported description from model: not evidenced in passages")
+                        parsed["description"] = None
+                        parsed["description_excerpt"] = None
+
+            if parsed.get("website"):
+                cand_domain = re.sub(r"^https?:\/\/", "", str(parsed["website"])).split("/")[0].lower()
+                if cand_domain and cand_domain not in combined_text.lower():
+                    logger.warning("Rejecting unsupported website '%s': not evidenced in source passages", parsed["website"])
+                    parsed["website"] = None
+
+            if parsed.get("employee_count") is not None:
+                emp_str = str(parsed["employee_count"])
+                if emp_str not in combined_text:
+                    logger.warning("Rejecting unsupported employee_count '%s': not evidenced in source passages", emp_str)
+                    parsed["employee_count"] = None
 
             # Extract token usage metadata from response if available
             in_tokens = 0
@@ -165,6 +200,17 @@ class GeminiClient:
         snippets: List[str],
     ) -> Dict[str, Any]:
         """Deterministic, zero-token heuristic extraction used in mock mode and fallback."""
+        if not snippets:
+            return {
+                "website": None,
+                "management_leadership": [],
+                "employee_count": None,
+                "description": None,
+                "description_excerpt": None,
+                "business_activities": [],
+                "explanation": f"No web evidence passages retrieved for {company_name}.",
+            }
+
         full_text = " ".join(snippets)
         
         # CEO / Management pattern
@@ -179,19 +225,32 @@ class GeminiClient:
         emp_match = re.search(r"(?:employees|ansatte)[:\s]+(\d+)", full_text, re.IGNORECASE)
         employee_count = int(emp_match.group(1)) if emp_match else None
 
-        desc = f"Verified commercial operations for {company_name} in Norway."
-        if snippets:
+        desc = None
+        desc_excerpt = None
+        for snip in snippets:
+            for sent in snip.split("."):
+                s = sent.strip()
+                if len(s) > 20 and (company_name.lower() in s.lower() or any(k in s.lower() for k in ("virksomhet", "tjenester", "selskap", "leverer", "tilbyr", "produserer", "international", "energy"))):
+                    desc = s + "."
+                    desc_excerpt = s
+                    break
+            if desc:
+                break
+
+        if not desc and snippets:
             first_sent = snippets[0].split(".")[0].strip()
-            if len(first_sent) > 15:
+            if len(first_sent) > 25:
                 desc = first_sent + "."
+                desc_excerpt = first_sent
 
         return {
             "website": website,
             "management_leadership": management,
             "employee_count": employee_count,
             "description": desc,
-            "business_activities": [f"Commercial activities of {company_name}"],
-            "explanation": f"Profile extracted using verified evidence snippets for {company_name}.",
+            "description_excerpt": desc_excerpt,
+            "business_activities": [],
+            "explanation": f"Profile extracted using verified evidence snippets for {company_name}." if desc else f"No evidenced operations text found for {company_name}.",
         }
 
 

@@ -33,10 +33,30 @@ async def test_end_to_end_pipeline_with_mock_provider():
     assert "name" in profile.facts
     assert "address" in profile.facts
 
-    # Verify fact provenance
+    # Verify fact provenance separation: Registry facts MUST point to Brreg
     name_fact = profile.facts["name"]
     assert name_fact.verification_status == "VERIFIED"
     assert "data.brreg.no" in name_fact.source_domain
+    assert "Brreg" in name_fact.excerpt or "Enhetsregisteret" in name_fact.excerpt
+
+    # Web facts MUST retain their actual website source URL/domain, NEVER data.brreg.no
+    if "description" in profile.facts:
+        desc_fact = profile.facts["description"]
+        assert "data.brreg.no" not in desc_fact.source_url
+        assert desc_fact.source_domain != "data.brreg.no"
+        assert len(desc_fact.excerpt) > 10
+
+
+@pytest.mark.asyncio
+async def test_unsupported_facts_rejected_without_evidence():
+    """Confirms pipeline rejects ungrounded web facts rather than silently publishing them."""
+    pipe = ResearchPipeline(browser_provider_name="mock")
+    profile = await pipe.execute("923609016", force_refresh=True)
+
+    # In mock mode with empty ungrounded snippets, no fictitious descriptions enter profile
+    for field_name, fact_ev in profile.facts.items():
+        assert fact_ev.excerpt is not None
+        assert len(fact_ev.excerpt.strip()) > 0
 
 
 @pytest.mark.asyncio

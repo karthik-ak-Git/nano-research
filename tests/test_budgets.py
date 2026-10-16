@@ -9,18 +9,18 @@ from company_agent.config import settings
 
 @pytest.fixture(autouse=True)
 def reset_budget_state():
-    budget_manager.reset()
+    budget_manager.reset(run_id="test_budget_run")
     budget_manager.max_requests = settings.MAX_DAILY_REQUESTS
     budget_manager.internal_cost_ceiling = settings.INTERNAL_COST_CEILING_USD
     yield
-    budget_manager.reset()
+    budget_manager.reset(run_id="test_budget_run")
     budget_manager.max_requests = settings.MAX_DAILY_REQUESTS
     budget_manager.internal_cost_ceiling = settings.INTERNAL_COST_CEILING_USD
 
 
 def test_budget_manager_request_ceiling():
     mgr = ResourceBudgetManager(max_requests=5, max_cost_usd=10.0, internal_cost_ceiling_usd=8.0)
-    mgr.reset()
+    mgr.reset(run_id="test_request_ceiling")
     mgr.max_requests = 5
 
     # Record 4 requests -> within budget
@@ -42,7 +42,7 @@ def test_budget_manager_request_ceiling():
 
 def test_budget_manager_cost_ceiling():
     mgr = ResourceBudgetManager(max_requests=100, max_cost_usd=10.0, internal_cost_ceiling_usd=8.0)
-    mgr.reset()
+    mgr.reset(run_id="test_cost_ceiling")
     mgr.internal_cost_ceiling = 8.0
 
     # Record spend below ceiling

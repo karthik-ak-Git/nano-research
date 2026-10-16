@@ -198,7 +198,7 @@ uv run company-agent validate --input profiles/seeded_profiles.json
 To execute the daily batch evaluation on an input file:
 
 ```bash
-uv run company-agent batch --input data/sample_companies.txt --output reports/batch_results.json
+uv run company-agent batch --input data/eval_100_companies.txt --output reports/batch_100_results.json
 ```
 
 Or for a single company lookup:

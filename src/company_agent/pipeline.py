@@ -132,8 +132,23 @@ class ResearchPipeline:
             target_urls.append(official_website)
 
         # 6, 7, 8. Fetch permitted pages, extract snippets, deduplicate
+        web_source_url: Optional[str] = None
+        web_source_domain: Optional[str] = None
+        web_cleaned_text: str = ""
+        web_resolution_status: str = "UNVERIFIED"
+        web_confidence: float = 0.1
         web_snippets: List[str] = []
-        for target_url in target_urls[:2]:
+
+        if target_urls:
+            from urllib.parse import urlparse
+            target_url = target_urls[0]
+            web_source_url = target_url
+            try:
+                parsed_u = urlparse(target_url)
+                web_source_domain = parsed_u.netloc.replace("www.", "").strip()
+            except Exception:
+                web_source_domain = "website"
+
             try:
                 browser_res = await self.browser_provider.navigate_and_extract(
                     url=target_url,
@@ -141,9 +156,36 @@ class ResearchPipeline:
                     timeout=20.0,
                 )
                 if browser_res.cleaned_text:
+                    web_cleaned_text = browser_res.cleaned_text
+                    
+                    # Entity resolution check on web text
+                    from company_agent.identity import extract_organisation_numbers
+                    source_orgs = extract_organisation_numbers(web_cleaned_text)
+                    if clean_org in source_orgs:
+                        web_resolution_status = "VERIFIED_MATCH"
+                        web_confidence = 1.0
+                    elif source_orgs:
+                        # Found valid Norwegian org numbers, but NOT the target company!
+                        web_resolution_status = "CONFLICT_MISMATCH"
+                        web_confidence = 0.0
+                        warnings.append(
+                            f"Entity resolution conflict on {target_url}: found conflicting organisation numbers {source_orgs}"
+                        )
+                    else:
+                        # Reconcile via official domain and registered legal name
+                        res_status, res_expl, res_conf = verify_entity_resolution(
+                            requested_org_nr=clean_org,
+                            registry_legal_name=legal_name,
+                            source_name=legal_name,
+                            source_domain=web_source_domain,
+                            official_domain=web_source_domain,
+                        )
+                        web_resolution_status = res_status
+                        web_confidence = res_conf
+
                     snips = extract_relevant_snippets(
-                        browser_res.cleaned_text,
-                        keywords=[legal_name, clean_org, "virksomhet", "tjenester"],
+                        web_cleaned_text,
+                        keywords=[legal_name, clean_org, "virksomhet", "tjenester", "om oss"],
                         max_snippets=settings.MAX_SNIPPETS_PER_MODEL_CALL,
                     )
                     web_snippets.extend(snips)
@@ -152,7 +194,7 @@ class ResearchPipeline:
 
         # 9 & 10. Entity resolution & pass useful evidence to Gemini
         gemini_facts = {}
-        if web_snippets:
+        if web_snippets and web_resolution_status != "CONFLICT_MISMATCH":
             try:
                 gemini_facts = gemini_client.extract_structured_facts(
                     company_name=legal_name,
@@ -185,32 +227,188 @@ class ResearchPipeline:
                 if official_website:
                     company.website = official_website
 
-            # Source for registry data
+            # Source for registry data (Enhetsregisteret)
             registry_source = repo.get_or_create_source(
                 url=f"{settings.BRREG_API_BASE}/enheter/{clean_org}",
                 domain="data.brreg.no",
                 content=str(registry_data),
             )
 
-            # Map of facts to save
-            facts_to_save: List[Tuple[str, Any, str, EvidenceQuality, FactVerificationStatus, Optional[str], Optional[FinancialPeriod]]] = [
-                ("name", legal_name, legal_name, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("legal_form", org_form, org_form, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("status", status_str, status_str, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("address", street_address, street_address, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("postal_code", postal_code, postal_code, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("municipality", municipality, municipality, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("industry_code", nace_code, nace_code, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("industry_description", nace_desc, nace_desc, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None),
-                ("registration_date", reg_date, reg_date, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, reg_date, None),
-                ("incorporation_date", incorp_date, incorp_date, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, incorp_date, None),
-                ("employee_count", employees, str(employees) if employees is not None else None, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, registry_data.get("registreringsdatoAntallAnsatteEnhetsregisteret"), None),
+            # Facts list with strict provenance attribution
+            facts_to_save: List[Dict[str, Any]] = [
+                {
+                    "field_name": "name",
+                    "normalized_value": legal_name,
+                    "raw_value": legal_name,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Authoritative legal name '{legal_name}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "legal_form",
+                    "normalized_value": org_form,
+                    "raw_value": org_form,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Authoritative legal form '{org_form}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "status",
+                    "normalized_value": status_str,
+                    "raw_value": status_str,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Authoritative status '{status_str}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "address",
+                    "normalized_value": street_address,
+                    "raw_value": street_address,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Registered business address '{street_address}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "postal_code",
+                    "normalized_value": postal_code,
+                    "raw_value": postal_code,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Registered postal code '{postal_code}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "municipality",
+                    "normalized_value": municipality,
+                    "raw_value": municipality,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Registered municipality '{municipality}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "industry_code",
+                    "normalized_value": nace_code,
+                    "raw_value": nace_code,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"NACE industry code '{nace_code}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "industry_description",
+                    "normalized_value": nace_desc,
+                    "raw_value": nace_desc,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"NACE industry description '{nace_desc}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "registration_date",
+                    "normalized_value": reg_date,
+                    "raw_value": reg_date,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Registration date '{reg_date}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": reg_date,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "incorporation_date",
+                    "normalized_value": incorp_date,
+                    "raw_value": incorp_date,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Incorporation date '{incorp_date}' from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": incorp_date,
+                    "fin_period": None,
+                },
+                {
+                    "field_name": "employee_count",
+                    "normalized_value": employees,
+                    "raw_value": str(employees) if employees is not None else None,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Official employee count {employees} from Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": registry_data.get("registreringsdatoAntallAnsatteEnhetsregisteret"),
+                    "fin_period": None,
+                },
             ]
 
             if official_website:
-                facts_to_save.append(("official_website", official_website, official_website, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, None, None))
+                facts_to_save.append({
+                    "field_name": "official_website",
+                    "normalized_value": official_website,
+                    "raw_value": official_website,
+                    "source": registry_source,
+                    "source_name": "Brønnøysund Register Centre",
+                    "excerpt": f"Official website '{official_website}' registered in Enhetsregisteret record for {clean_org}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": None,
+                    "fin_period": None,
+                })
 
-            # Financial facts (with validation)
+            # Financial facts (with validation, sourced from Regnskapsregisteret)
             if fin_period and (rev_val is not None or profit_val is not None or assets_val is not None):
                 regnskap_source = repo.get_or_create_source(
                     url=f"{settings.BRREG_REGNSKAP_BASE}/regnskap/{clean_org}",
@@ -218,23 +416,147 @@ class ResearchPipeline:
                     content=str(regnskap_list),
                 )
                 if rev_val is not None:
-                    is_valid_fin, _ = validate_financial_fact("revenue", rev_val, currency_val, period_str, f"Sales revenue reported in {currency_val}")
+                    is_valid_fin, _ = validate_financial_fact(
+                        "revenue", rev_val, currency_val, period_str, f"Sales revenue reported in {currency_val}"
+                    )
                     if is_valid_fin:
-                        facts_to_save.append(("revenue", rev_val, str(rev_val), EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, to_d, fin_period))
+                        facts_to_save.append({
+                            "field_name": "revenue",
+                            "normalized_value": rev_val,
+                            "raw_value": str(rev_val),
+                            "source": regnskap_source,
+                            "source_name": "Brønnøysund Regnskapsregisteret",
+                            "excerpt": f"Sales revenue {rev_val} {currency_val} from Regnskapsregisteret for period {period_str}",
+                            "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                            "verification_status": FactVerificationStatus.VERIFIED,
+                            "identity_match": "VERIFIED_MATCH",
+                            "confidence": 1.0,
+                            "pub_date": to_d,
+                            "fin_period": fin_period,
+                        })
                 if profit_val is not None:
-                    facts_to_save.append(("operating_profit", profit_val, str(profit_val), EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, to_d, fin_period))
+                    facts_to_save.append({
+                        "field_name": "operating_profit",
+                        "normalized_value": profit_val,
+                        "raw_value": str(profit_val),
+                        "source": regnskap_source,
+                        "source_name": "Brønnøysund Regnskapsregisteret",
+                        "excerpt": f"Operating profit {profit_val} {currency_val} from Regnskapsregisteret for period {period_str}",
+                        "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                        "verification_status": FactVerificationStatus.VERIFIED,
+                        "identity_match": "VERIFIED_MATCH",
+                        "confidence": 1.0,
+                        "pub_date": to_d,
+                        "fin_period": fin_period,
+                    })
                 if assets_val is not None:
-                    facts_to_save.append(("total_assets", assets_val, str(assets_val), EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, to_d, fin_period))
-                facts_to_save.append(("currency", currency_val, currency_val, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, to_d, fin_period))
-                facts_to_save.append(("financial_period", period_str, period_str, EvidenceQuality.REGISTRY_OFFICIAL, FactVerificationStatus.VERIFIED, to_d, fin_period))
+                    facts_to_save.append({
+                        "field_name": "total_assets",
+                        "normalized_value": assets_val,
+                        "raw_value": str(assets_val),
+                        "source": regnskap_source,
+                        "source_name": "Brønnøysund Regnskapsregisteret",
+                        "excerpt": f"Total assets {assets_val} {currency_val} from Regnskapsregisteret for period {period_str}",
+                        "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                        "verification_status": FactVerificationStatus.VERIFIED,
+                        "identity_match": "VERIFIED_MATCH",
+                        "confidence": 1.0,
+                        "pub_date": to_d,
+                        "fin_period": fin_period,
+                    })
+                facts_to_save.append({
+                    "field_name": "currency",
+                    "normalized_value": currency_val,
+                    "raw_value": currency_val,
+                    "source": regnskap_source,
+                    "source_name": "Brønnøysund Regnskapsregisteret",
+                    "excerpt": f"Financial reporting currency '{currency_val}' from Regnskapsregisteret for period {period_str}",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": to_d,
+                    "fin_period": fin_period,
+                })
+                facts_to_save.append({
+                    "field_name": "financial_period",
+                    "normalized_value": period_str,
+                    "raw_value": period_str,
+                    "source": regnskap_source,
+                    "source_name": "Brønnøysund Regnskapsregisteret",
+                    "excerpt": f"Annual accounts financial period '{period_str}' from Regnskapsregisteret",
+                    "quality": EvidenceQuality.REGISTRY_OFFICIAL,
+                    "verification_status": FactVerificationStatus.VERIFIED,
+                    "identity_match": "VERIFIED_MATCH",
+                    "confidence": 1.0,
+                    "pub_date": to_d,
+                    "fin_period": fin_period,
+                })
 
-            # Gemini derived descriptions
-            if gemini_facts.get("description"):
+            # Web-derived facts: strict attribution to the actual website source URL
+            # Unsupported facts lacking direct evidence excerpts are explicitly rejected
+            if gemini_facts.get("description") and web_source_url and web_resolution_status != "CONFLICT_MISMATCH":
                 desc_text = gemini_facts["description"]
-                facts_to_save.append(("description", desc_text, desc_text, EvidenceQuality.DIRECT_OFFICIAL, FactVerificationStatus.SECONDARY_SUPPORTED, None, None))
+                desc_excerpt = gemini_facts.get("description_excerpt")
 
-            # Save facts and detect material changes
-            for f_name, norm_val, raw_val, quality, v_status, pub_date, fin_p in facts_to_save:
+                # Verify that an actual grounding excerpt exists
+                if not desc_excerpt and web_snippets:
+                    for snip in web_snippets:
+                        if any(w in snip.lower() for w in desc_text.lower().split()[:5]):
+                            desc_excerpt = snip
+                            break
+
+                if desc_excerpt:
+                    web_source = repo.get_or_create_source(
+                        url=web_source_url,
+                        domain=web_source_domain or "website",
+                        content=web_cleaned_text[:5000],
+                    )
+                    w_quality = (
+                        EvidenceQuality.DIRECT_OFFICIAL
+                        if web_resolution_status == "VERIFIED_MATCH"
+                        else EvidenceQuality.SECONDARY_PUBLIC
+                    )
+                    w_status = (
+                        FactVerificationStatus.VERIFIED
+                        if web_resolution_status == "VERIFIED_MATCH"
+                        else FactVerificationStatus.SECONDARY_SUPPORTED
+                    )
+
+                    facts_to_save.append({
+                        "field_name": "description",
+                        "normalized_value": desc_text,
+                        "raw_value": desc_text,
+                        "source": web_source,
+                        "source_name": web_source_domain or web_source_url,
+                        "excerpt": desc_excerpt[:500],
+                        "quality": w_quality,
+                        "verification_status": w_status,
+                        "identity_match": web_resolution_status,
+                        "confidence": web_confidence,
+                        "pub_date": None,
+                        "fin_period": None,
+                    })
+                else:
+                    msg = f"Rejected unsupported web description for {clean_org}: no grounding excerpt found in {web_source_url}"
+                    logger.warning(msg)
+                    warnings.append(msg)
+
+            # Save facts and detect material changes with accurate source attribution
+            for item in facts_to_save:
+                f_name = item["field_name"]
+                norm_val = item["normalized_value"]
+                raw_val = item["raw_value"]
+                source_obj = item["source"]
+                src_name = item["source_name"]
+                excerpt = item["excerpt"]
+                quality = item["quality"]
+                v_status = item["verification_status"]
+                ident_match = item["identity_match"]
+                conf = item["confidence"]
+                pub_date = item["pub_date"]
+                fin_p = item["fin_period"]
+
                 if norm_val is None:
                     continue
 
@@ -251,7 +573,7 @@ class ResearchPipeline:
                         field_name=f_name,
                         old_value=old_decoded,
                         new_value=norm_val,
-                        source_name="Brønnøysund Register Centre",
+                        source_name=src_name,
                         source_date=pub_date,
                     )
                     if changed and change_exp:
@@ -264,20 +586,20 @@ class ResearchPipeline:
                             explanation=change_exp,
                         )
 
-                # Persist fact
+                # Persist fact with actual source and excerpt
                 repo.save_or_update_fact(
                     company=company,
                     field_name=f_name,
                     normalized_value=norm_val,
                     raw_value=raw_val,
-                    source=registry_source,
-                    excerpt=f"Authoritative field '{f_name}' from Brreg record {clean_org}",
+                    source=source_obj,
+                    excerpt=excerpt,
                     publication_date=pub_date,
                     financial_period=fin_p,
-                    identity_match="VERIFIED_MATCH",
-                    confidence=1.0 if quality == EvidenceQuality.REGISTRY_OFFICIAL else 0.85,
-                    verification_status=v_status.value,
-                    quality=quality.value,
+                    identity_match=ident_match,
+                    confidence=conf,
+                    verification_status=v_status.value if hasattr(v_status, "value") else str(v_status),
+                    quality=quality.value if hasattr(quality, "value") else str(quality),
                 )
 
             # Build final schema

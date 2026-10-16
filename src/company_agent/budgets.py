@@ -124,11 +124,15 @@ class ResourceBudgetManager:
         endpoint: str,
         status_code: Optional[int] = None,
         retries: int = 0,
+        persist: bool = True,
     ) -> None:
         """Records an outbound network request, including retries, and persists to DB."""
         with self._counter_lock:
             self.request_count += (1 + retries)
             self.retry_count += retries
+
+        if not persist or self.run_id.startswith("test"):
+            return
 
         # Async or direct DB persistence for auditing
         try:
@@ -154,6 +158,7 @@ class ResourceBudgetManager:
         output_tokens: int,
         estimated_cost: float,
         measured_cost: float = 0.0,
+        persist: bool = True,
     ) -> None:
         """Records Gemini token and cost metrics."""
         with self._counter_lock:
@@ -163,6 +168,9 @@ class ResourceBudgetManager:
             self.estimated_cost_usd += estimated_cost
             if measured_cost > 0.0:
                 self.measured_cost_usd += measured_cost
+
+        if not persist or self.run_id.startswith("test"):
+            return
 
         try:
             from company_agent.database import get_db_session

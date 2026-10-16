@@ -61,3 +61,38 @@ def test_verify_fact_provenance_registry():
     assert status == FactVerificationStatus.VERIFIED
     assert quality == EvidenceQuality.REGISTRY_OFFICIAL
     assert conf == 1.0
+
+
+def test_validate_financial_fact_rules():
+    from company_agent.verification import validate_financial_fact
+
+    # Valid
+    ok, msg = validate_financial_fact("revenue", 1000000.0, "NOK", "2024", "Revenue 1000000 NOK")
+    assert ok is True
+
+    # Missing currency (never infer currency)
+    ok, msg = validate_financial_fact("revenue", 1000000.0, None, "2024", "Revenue 1000000")
+    assert ok is False
+    assert "currency" in msg
+
+    # Missing excerpt
+    ok, msg = validate_financial_fact("revenue", 1000000.0, "NOK", "2024", None)
+    assert ok is False
+    assert "excerpt" in msg
+
+
+def test_verify_fact_provenance_conflict_quarantined():
+    status, quality, conf, expl = verify_fact_provenance(
+        field_name="description",
+        value="A telecommunications provider",
+        source_url="https://www.telenor.com",
+        requested_org_nr="923609016",  # Equinor
+        registry_legal_name="EQUINOR ASA",
+        source_org_nr="976633408",    # Telenor
+        source_domain="telenor.com",
+        official_domain="equinor.com",
+    )
+    assert status == FactVerificationStatus.CONFLICTING
+    assert quality == EvidenceQuality.UNCONFIRMED
+    assert conf == 0.0
+    assert "Quarantined" in expl

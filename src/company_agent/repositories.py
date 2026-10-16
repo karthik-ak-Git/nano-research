@@ -78,9 +78,33 @@ class CompanyRepository:
 
         if existing_fact:
             if existing_fact.normalized_value == json_val:
-                # Value unchanged: update last_seen_at on its latest evidence record
-                for ev in existing_fact.evidence_records:
-                    ev.last_seen_at = now
+                # Value unchanged: update last_seen_at and sync source/excerpt provenance
+                if existing_fact.evidence_records:
+                    for ev in existing_fact.evidence_records:
+                        if ev.source_id != source.id or ev.excerpt != excerpt:
+                            ev.source_id = source.id
+                            ev.excerpt = excerpt
+                            ev.quality = quality
+                            ev.verification_status = verification_status
+                            ev.identity_match = identity_match
+                            ev.confidence = confidence
+                        ev.last_seen_at = now
+                else:
+                    fin_json = financial_period.model_dump_json() if financial_period else None
+                    ev = FactEvidenceModel(
+                        fact_id=existing_fact.id,
+                        source_id=source.id,
+                        excerpt=excerpt,
+                        publication_date=publication_date,
+                        financial_period_json=fin_json,
+                        identity_match=identity_match,
+                        confidence=confidence,
+                        verification_status=verification_status,
+                        quality=quality,
+                        retrieved_at=now,
+                        last_seen_at=now,
+                    )
+                    self.session.add(ev)
                 existing_fact.updated_at = now
                 return existing_fact
             else:
