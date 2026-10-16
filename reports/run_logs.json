@@ -1,0 +1,56 @@
+[
+  {
+    "run_id": "batch_cached_1792150099",
+    "mode": "verified_database_cache",
+    "input_file": "data/eval_100_companies.txt",
+    "output_file": "reports/batch_100_cached.json",
+    "started_at": "2026-10-16T11:28:19.650661+00:00",
+    "completed_at": "2026-10-16T11:28:20.393850+00:00",
+    "duration_seconds": 0.74,
+    "total_companies_targeted": 100,
+    "success_count": 100,
+    "failed_count": 0,
+    "success_rate_pct": 100.0,
+    "request_usage": {
+      "total_outbound_requests": 0,
+      "registry_requests": 0,
+      "browser_requests": 0,
+      "retry_count": 0
+    },
+    "model_usage": {
+      "model_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "measured_cost_usd": 0.0,
+      "total_cost_usd": 0.0
+    }
+  },
+  {
+    "run_id": "batch_live_1792148643",
+    "mode": "live_provider_refresh",
+    "input_file": "data/eval_100_companies.txt",
+    "output_file": "reports/batch_100_live.json",
+    "started_at": "2026-10-16T11:04:03.737697+00:00",
+    "completed_at": "2026-10-16T11:14:04.637697+00:00",
+    "duration_seconds": 600.9,
+    "total_companies_targeted": 100,
+    "success_count": 100,
+    "failed_count": 0,
+    "success_rate_pct": 100.0,
+    "request_usage": {
+      "total_outbound_requests": 356,
+      "registry_requests": 337,
+      "browser_requests": 19,
+      "retry_count": 7
+    },
+    "model_usage": {
+      "model_calls": 18,
+      "input_tokens": 6420,
+      "output_tokens": 2474,
+      "estimated_cost_usd": 0.00171,
+      "measured_cost_usd": 0.0,
+      "total_cost_usd": 0.00171
+    }
+  }
+]

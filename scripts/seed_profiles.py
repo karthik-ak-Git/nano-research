@@ -21,12 +21,13 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from sqlalchemy import func
 from company_agent.config import settings
 from company_agent.logging_config import logger
 from company_agent.identity import validate_organisation_number
 from company_agent.database import init_db, get_db_session
 from company_agent.repositories import CompanyRepository
-from company_agent.models import Company, Fact, EvidenceSource, FactEvidenceModel
+from company_agent.models import Company, Fact, EvidenceSource, FactEvidenceModel, RequestUsage
 from company_agent.schemas import FactVerificationStatus, EvidenceQuality
 from company_agent.providers.registry import registry_client
 from company_agent.budgets import budget_manager
@@ -39,6 +40,10 @@ def seed_profiles(target_count: int = 1000, output_dir: Path = settings.PROFILES
     manifest_path = output_dir / "seed_manifest.json"
     profiles_export_path = output_dir / "seeded_profiles.json"
 
+    seed_run_id = f"seed_{int(time.time())}"
+    budget_manager.reset(run_id=seed_run_id)
+    start_time = time.time()
+
     with get_db_session() as session:
         existing_count = session.query(Company).count()
         existing_orgs = {c[0] for c in session.query(Company.organisation_number).all()}
@@ -47,7 +52,8 @@ def seed_profiles(target_count: int = 1000, output_dir: Path = settings.PROFILES
 
     if existing_count >= target_count:
         logger.info("Target of %d profiles already satisfied in database.", target_count)
-        _export_manifest_and_profiles(manifest_path, profiles_export_path, target_count)
+        elapsed = round(time.time() - start_time, 2)
+        _print_and_export_seed_audit(manifest_path, profiles_export_path, target_count, seed_run_id, elapsed)
         return existing_count
 
     needed = target_count - existing_count
@@ -55,7 +61,6 @@ def seed_profiles(target_count: int = 1000, output_dir: Path = settings.PROFILES
 
     page = 0
     page_size = 100
-    start_time = time.time()
     total_newly_seeded = 0
 
     while (existing_count + total_newly_seeded) < target_count and page < 50:
@@ -181,26 +186,48 @@ def seed_profiles(target_count: int = 1000, output_dir: Path = settings.PROFILES
 
     final_total = existing_count + total_newly_seeded
     logger.info("Seeding complete. Final database profile count: %d", final_total)
-    _export_manifest_and_profiles(manifest_path, profiles_export_path, target_count)
+    elapsed_total = round(time.time() - start_time, 2)
+    _print_and_export_seed_audit(manifest_path, profiles_export_path, target_count, seed_run_id, elapsed_total)
     return final_total
 
 
-def _export_manifest_and_profiles(manifest_path: Path, export_path: Path, target: int) -> None:
-    """Exports manifest and full JSON export of seeded profiles."""
+def _print_and_export_seed_audit(
+    manifest_path: Path,
+    export_path: Path,
+    target: int,
+    run_id: str,
+    elapsed_seconds: float,
+) -> None:
+    """Exports manifest, validates Mod11 across all profiles, and prints audit summary."""
     with get_db_session() as session:
         repo = CompanyRepository(session)
         stats = repo.get_stats()
         companies = session.query(Company).all()
         profiles_json = [repo.build_profile_schema(c).model_dump(mode="json") for c in companies]
 
+        all_orgs = [c.organisation_number for c in companies]
+        mod11_valid = sum(1 for o in all_orgs if validate_organisation_number(o)[0])
+        total_unique = len(set(all_orgs))
+        req_count = (
+            session.query(func.count(RequestUsage.id))
+            .filter(RequestUsage.run_id == run_id)
+            .scalar() or 0
+        )
+
     export_path.write_text(json.dumps(profiles_json, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Seeded profiles exported to %s", export_path)
 
     manifest_data = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "run_id": run_id,
+        "elapsed_seconds": elapsed_seconds,
         "target_count": target,
         "actual_count": stats["total_companies"],
         "target_met": stats["total_companies"] >= target,
+        "unique_companies_count": total_unique,
+        "mod11_valid_checksum_count": mod11_valid,
+        "mod11_valid_percentage": round(mod11_valid / total_unique * 100.0, 2) if total_unique else 0.0,
+        "measured_outbound_requests": req_count,
         "total_facts": stats["total_facts"],
         "verified_evidence_rate_pct": stats["verified_rate_pct"],
         "export_file": "profiles/seeded_profiles.json",
@@ -212,6 +239,17 @@ def _export_manifest_and_profiles(manifest_path: Path, export_path: Path, target
 
     manifest_path.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Seeding manifest written to %s", manifest_path)
+
+    print("\n" + "=" * 60)
+    print("CLEAN DATABASE SEED AUDIT RESULT")
+    print("=" * 60)
+    print(f"Elapsed Time: {elapsed_seconds:.2f}s")
+    print(f"Unique Companies in DB: {total_unique}")
+    print(f"Mod11 Valid Checksums: {mod11_valid}/{total_unique} ({manifest_data['mod11_valid_percentage']}%)")
+    print(f"Measured Outbound Requests: {req_count}")
+    print(f"Total Facts Persisted: {stats['total_facts']}")
+    print(f"Verified Evidence Rate: {stats['verified_rate_pct']}%")
+    print("=" * 60 + "\n")
 
 
 if __name__ == "__main__":

@@ -43,7 +43,6 @@ env/
 *.db-journal
 *.sqlite
 *.sqlite3
-!data/test_*.db
 
 # Cache & tests
 .pytest_cache/

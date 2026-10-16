@@ -5,11 +5,12 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from datetime import datetime, timezone
 import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from sqlalchemy import func
 
 from company_agent.config import settings
 from company_agent.logging_config import logger
@@ -17,7 +18,7 @@ from company_agent.database import init_db, get_db_session
 from company_agent.identity import validate_organisation_number
 from company_agent.pipeline import pipeline
 from company_agent.repositories import CompanyRepository
-from company_agent.models import Company
+from company_agent.models import Company, CrawlRun, RequestUsage, ModelUsage
 from company_agent.costs import generate_cost_report
 from company_agent.budgets import budget_manager, BudgetExceededError
 from company_agent.providers.gemini import gemini_client
@@ -135,8 +136,27 @@ def batch(
             if line and not line.startswith("#"):
                 org_numbers.append(line)
 
+    mode_name = "live_provider_refresh" if force_refresh else "verified_database_cache"
     mode_str = "[bold yellow]LIVE REFRESH (live provider calls)[/bold yellow]" if force_refresh else "[cyan]CACHED (verified DB lookup)[/cyan]"
     console.print(f"[cyan]Loaded {len(org_numbers)} organisation numbers for batch execution. Mode: {mode_str}[/cyan]")
+
+    run_id = f"batch_{'live' if force_refresh else 'cached'}_{int(time.time())}"
+    budget_manager.reset(run_id=run_id)
+    started_at = datetime.now(timezone.utc)
+
+    try:
+        with get_db_session() as session:
+            crawl_run = CrawlRun(
+                run_id=run_id,
+                started_at=started_at,
+                status="RUNNING",
+                total_companies=len(org_numbers),
+                success_count=0,
+                error_count=0,
+            )
+            session.add(crawl_run)
+    except Exception as e:
+        logger.debug("Could not record CrawlRun start in DB: %s", e)
 
     # Check for existing completed results if resuming
     results = []
@@ -153,7 +173,6 @@ def batch(
 
     success_count = 0
     failed_count = 0
-    start_time = time.time()
 
     for idx, raw_org in enumerate(org_numbers, 1):
         is_valid, clean_org = validate_organisation_number(raw_org)
@@ -172,15 +191,24 @@ def batch(
             profile = asyncio.run(pipeline.execute(clean_org, force_refresh=force_refresh))
             elapsed = time.time() - t0
 
+            # Verify profile schema and valid identity
+            is_valid_prof, _ = validate_organisation_number(profile.organisation_number)
+            if is_valid_prof and profile.name:
+                success_count += 1
+                status_label = "[green]SUCCESS[/green]"
+            else:
+                failed_count += 1
+                status_label = "[yellow]PARTIAL/INVALID[/yellow]"
+
             profile_dict = profile.model_dump(mode="json")
             results.append(profile_dict)
             completed_orgs.add(clean_org)
-            success_count += 1
-            console.print(f"[{idx}/{len(org_numbers)}] [green]SUCCESS[/green] {profile.name} ({clean_org}) in {elapsed:.2f}s")
+            console.print(f"[{idx}/{len(org_numbers)}] {status_label} {profile.name} ({clean_org}) in {elapsed:.2f}s")
 
-            # Save partial progress incrementally so interrupted runs can resume
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+            # Save progress periodically (every 10 items) and at completion
+            if idx % 10 == 0 or idx == len(org_numbers):
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                output_file.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
         except BudgetExceededError as be:
             console.print(f"[bold red]BUDGET LIMIT REACHED:[/bold red] {be}. Halting batch execution safely.")
@@ -189,10 +217,132 @@ def batch(
             failed_count += 1
             console.print(f"[{idx}/{len(org_numbers)}] [red]FAILED[/red] {clean_org}: {e}")
 
-    total_time = time.time() - start_time
+    # Ensure final results are fully flushed to output file
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    completed_at = datetime.now(timezone.utc)
+    duration_seconds = round((completed_at - started_at).total_seconds(), 2)
+
+    # Query metrics specifically recorded for this run
+    reg_requests = 0
+    browser_requests = 0
+    total_requests = 0
+    retries = 0
+    model_calls = 0
+    in_tokens = 0
+    out_tokens = 0
+    est_cost = 0.0
+    meas_cost = 0.0
+
+    try:
+        with get_db_session() as session:
+            reg_requests = (
+                session.query(func.count(RequestUsage.id))
+                .filter(RequestUsage.run_id == run_id, RequestUsage.provider.like("%registry%"))
+                .scalar() or 0
+            )
+            browser_requests = (
+                session.query(func.count(RequestUsage.id))
+                .filter(RequestUsage.run_id == run_id, ~RequestUsage.provider.like("%registry%"))
+                .scalar() or 0
+            )
+            total_requests = (
+                session.query(func.count(RequestUsage.id))
+                .filter(RequestUsage.run_id == run_id)
+                .scalar() or 0
+            )
+            retries = (
+                session.query(func.sum(RequestUsage.retries))
+                .filter(RequestUsage.run_id == run_id)
+                .scalar() or 0
+            )
+            model_calls = (
+                session.query(func.count(ModelUsage.id))
+                .filter(ModelUsage.run_id == run_id)
+                .scalar() or 0
+            )
+            in_tokens = (
+                session.query(func.sum(ModelUsage.input_tokens))
+                .filter(ModelUsage.run_id == run_id)
+                .scalar() or 0
+            )
+            out_tokens = (
+                session.query(func.sum(ModelUsage.output_tokens))
+                .filter(ModelUsage.run_id == run_id)
+                .scalar() or 0
+            )
+            est_cost = float(
+                session.query(func.sum(ModelUsage.estimated_cost))
+                .filter(ModelUsage.run_id == run_id)
+                .scalar() or 0.0
+            )
+            meas_cost = float(
+                session.query(func.sum(ModelUsage.measured_cost))
+                .filter(ModelUsage.run_id == run_id)
+                .scalar() or 0.0
+            )
+
+            cr = session.query(CrawlRun).filter_by(run_id=run_id).first()
+            if cr:
+                cr.completed_at = completed_at
+                cr.status = "COMPLETED" if failed_count == 0 else "PARTIAL"
+                cr.success_count = success_count
+                cr.error_count = failed_count
+    except Exception as e:
+        logger.debug("Failed to record CrawlRun completion in DB: %s", e)
+
+    total_cost = est_cost + meas_cost
+
+    # Durable Run Log entry
+    run_log_entry = {
+        "run_id": run_id,
+        "mode": mode_name,
+        "input_file": Path(input_file).as_posix(),
+        "output_file": Path(output_file).as_posix(),
+        "started_at": started_at.isoformat(),
+        "completed_at": completed_at.isoformat(),
+        "duration_seconds": duration_seconds,
+        "total_companies_targeted": len(org_numbers),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "success_rate_pct": round(success_count / len(org_numbers) * 100.0, 2) if org_numbers else 0.0,
+        "request_usage": {
+            "total_outbound_requests": total_requests,
+            "registry_requests": reg_requests,
+            "browser_requests": browser_requests,
+            "retry_count": retries,
+        },
+        "model_usage": {
+            "model_calls": model_calls,
+            "input_tokens": in_tokens,
+            "output_tokens": out_tokens,
+            "estimated_cost_usd": round(est_cost, 5),
+            "measured_cost_usd": round(meas_cost, 5),
+            "total_cost_usd": round(total_cost, 5),
+        },
+    }
+
+    try:
+        run_logs_path = settings.REPORTS_DIR / "run_logs.json"
+        run_logs_path.parent.mkdir(parents=True, exist_ok=True)
+        run_logs = []
+        if run_logs_path.exists():
+            try:
+                existing_logs = json.loads(run_logs_path.read_text(encoding="utf-8"))
+                if isinstance(existing_logs, list):
+                    run_logs = existing_logs
+            except Exception:
+                pass
+        run_logs = [entry for entry in run_logs if entry.get("run_id") != run_id]
+        run_logs.append(run_log_entry)
+        run_logs_path.write_text(json.dumps(run_logs, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        logger.debug("Failed to update run_logs.json: %s", e)
+
     console.print(
         f"\n[bold green]Batch Complete:[/bold green] {success_count} succeeded, "
-        f"{failed_count} failed in {total_time:.1f}s. Results saved to {output_file}"
+        f"{failed_count} failed in {duration_seconds:.1f}s. Results saved to {output_file}"
     )
 
 

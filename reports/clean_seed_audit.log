@@ -1,0 +1,13 @@
+============================================================
+CLEAN DATABASE SEED AUDIT RESULT
+============================================================
+Command: uv run python scripts/run_clean_seed_test.py
+Target: 1000 profiles
+Source: Official Brønnøysund Register Centre Open Registry (https://data.brreg.no/enhetsregisteret/api/enheter)
+Elapsed Time: 44.11s (47.60s total including export & validation)
+Unique Companies in DB: 1000
+Mod11 Valid Checksums: 1000/1000 (100.0%)
+Measured Outbound Requests: 10 requests (size=100/page)
+Total Facts Persisted: 10846
+Verified Evidence Rate: 100.0%
+============================================================
