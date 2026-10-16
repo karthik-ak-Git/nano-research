@@ -52,10 +52,9 @@ class BrowserUseProvider(BaseBrowserProvider):
                 status_code=200,
             )
 
-            # If Gemini API key is configured, use LangChain or native ChatGoogleGenerativeAI if available
-            # Otherwise run lightweight extraction or return informative error
+            # If Gemini API key is configured, use ChatGoogle directly from browser_use
+            # This completely avoids the cloud BU2 model and requires NO BROWSER_USE_API_KEY!
             if not settings.GEMINI_API_KEY:
-                # Return documented mock-assisted result or failure
                 elapsed = time.time() - start_time
                 return BrowserResult(
                     url=url,
@@ -64,29 +63,55 @@ class BrowserUseProvider(BaseBrowserProvider):
                     error="GEMINI_API_KEY not configured for browser-use agent reasoning",
                 )
 
-            # Run agent asynchronously
-            # Note: For production reliability in environments without headless Chrome installed,
-            # we handle browser launch errors gracefully
+            import os
+            os.environ["ANONYMIZED_TELEMETRY"] = "false"
+            from browser_use import Agent, ChatGoogle
+
             try:
-                agent = Agent(task=task_description)
-                history = await asyncio.wait_for(agent.run(), timeout=timeout)
+                # Use ChatGoogle wrapper with configured Gemini model and user's API key
+                llm = ChatGoogle(
+                    model=settings.GEMINI_MODEL,
+                    api_key=settings.GEMINI_API_KEY,
+                )
+                agent = Agent(
+                    task=task_description,
+                    llm=llm,
+                    flash_mode=True,
+                )
+                history = await asyncio.wait_for(agent.run(max_steps=5), timeout=timeout)
                 elapsed = time.time() - start_time
+                final_text = history.final_result() or str(history)
                 return BrowserResult(
                     url=url,
                     status_code=200,
                     provider_name=self.name,
-                    cleaned_text=str(history),
+                    cleaned_text=final_text,
                     execution_time_seconds=elapsed,
                 )
             except Exception as e:
                 elapsed = time.time() - start_time
-                logger.warning("Browser-use execution exception for %s: %s", url, e)
-                return BrowserResult(
-                    url=url,
-                    provider_name=self.name,
-                    execution_time_seconds=elapsed,
-                    error=str(e),
-                )
+                logger.warning("Browser-use execution exception for %s: %s. Falling back to fast direct fetch.", url, e)
+                # Resilient fallback: direct fetch using httpx + HTML extraction
+                try:
+                    import httpx
+                    from company_agent.extraction import extract_clean_text_from_html
+                    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                        resp = await client.get(url, headers={"User-Agent": settings.USER_AGENT})
+                        cleaned = extract_clean_text_from_html(resp.text)
+                        return BrowserResult(
+                            url=url,
+                            status_code=resp.status_code,
+                            provider_name=self.name,
+                            cleaned_text=cleaned,
+                            execution_time_seconds=time.time() - start_time,
+                        )
+                except Exception as fetch_err:
+                    return BrowserResult(
+                        url=url,
+                        provider_name=self.name,
+                        execution_time_seconds=elapsed,
+                        error=f"Browser-use error: {e}; Fetch error: {fetch_err}",
+                    )
 
         except Exception as e:
             elapsed = time.time() - start_time
