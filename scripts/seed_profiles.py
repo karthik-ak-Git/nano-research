@@ -203,7 +203,7 @@ def _export_manifest_and_profiles(manifest_path: Path, export_path: Path, target
         "target_met": stats["total_companies"] >= target,
         "total_facts": stats["total_facts"],
         "verified_evidence_rate_pct": stats["verified_rate_pct"],
-        "export_file": str(export_path),
+        "export_file": "profiles/seeded_profiles.json",
         "sample_companies": [
             {"organisation_number": p["organisation_number"], "name": p["name"], "status": p["status"], "facts_count": len(p["facts"])}
             for p in profiles_json[:20]

@@ -1,18 +1,12 @@
 {
-  "timestamp": "2026-10-15T15:38:50Z",
+  "timestamp": "2026-10-16T11:03:21Z",
   "target_count": 1000,
   "actual_count": 1000,
   "target_met": true,
-  "total_facts": 10855,
-  "verified_evidence_rate_pct": 99.99,
-  "export_file": "D:\\nano-research\\profiles\\seeded_profiles.json",
+  "total_facts": 10846,
+  "verified_evidence_rate_pct": 100.0,
+  "export_file": "profiles/seeded_profiles.json",
   "sample_companies": [
-    {
-      "organisation_number": "923609016",
-      "name": "EQUINOR ASA",
-      "status": "Active",
-      "facts_count": 18
-    },
     {
       "organisation_number": "916627939",
       "name": "- P A L M E R A -",
@@ -126,6 +120,12 @@
       "name": ".NET KLUBBEN",
       "status": "Active",
       "facts_count": 12
+    },
+    {
+      "organisation_number": "928189309",
+      "name": ".STEIN MORTEN JOHANSEN TREARBEIDER OG VAKTMESTERTJENESTER",
+      "status": "Active",
+      "facts_count": 10
     }
   ]
 }

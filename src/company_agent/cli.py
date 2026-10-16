@@ -113,6 +113,7 @@ def batch(
     input_file: Path = typer.Option(..., "--input", "-i", help="Path to text or JSON file with organisation numbers"),
     output_file: Path = typer.Option(..., "--output", "-o", help="Path to write JSON results"),
     resume: bool = typer.Option(True, "--resume/--no-resume", help="Skip already processed companies"),
+    force_refresh: bool = typer.Option(False, "--force-refresh", "-f", help="Force fresh live lookup bypassing cache"),
 ):
     """Run batch intelligence extraction for multiple companies within daily budget limits."""
     if not input_file.exists():
@@ -134,7 +135,8 @@ def batch(
             if line and not line.startswith("#"):
                 org_numbers.append(line)
 
-    console.print(f"[cyan]Loaded {len(org_numbers)} organisation numbers for batch execution.[/cyan]")
+    mode_str = "[bold yellow]LIVE REFRESH (live provider calls)[/bold yellow]" if force_refresh else "[cyan]CACHED (verified DB lookup)[/cyan]"
+    console.print(f"[cyan]Loaded {len(org_numbers)} organisation numbers for batch execution. Mode: {mode_str}[/cyan]")
 
     # Check for existing completed results if resuming
     results = []
@@ -167,7 +169,7 @@ def batch(
         try:
             budget_manager.check_budget_available()
             t0 = time.time()
-            profile = asyncio.run(pipeline.execute(clean_org, force_refresh=False))
+            profile = asyncio.run(pipeline.execute(clean_org, force_refresh=force_refresh))
             elapsed = time.time() - t0
 
             profile_dict = profile.model_dump(mode="json")
