@@ -1,5 +1,5 @@
 {
-  "evaluation_timestamp": "2026-10-16T11:32:21.618551+00:00",
+  "evaluation_timestamp": "2026-10-16T11:40:48.284517+00:00",
   "database_records": {
     "distinct_valid_companies": 1005,
     "mod11_valid_checksum_count": 1005,
@@ -16,8 +16,8 @@
     "identity_mismatch_count": 0,
     "identity_mismatch_rate_pct": 0.0,
     "total_sources": 1058,
-    "sources_with_valid_url": 1058,
-    "source_url_availability_pct": 100.0,
+    "sources_with_non_empty_url": 1058,
+    "non_empty_source_url_rate_pct": 100.0,
     "total_historical_changes_recorded": 24,
     "freshness": {
       "fresh_profiles_count": 1005,
@@ -33,6 +33,7 @@
     }
   },
   "cumulative_resource_and_cost_accounting": {
+    "scope_description": "Aggregates all requests, tokens, and costs across the lifetime of the database session (including single-company CLI lookups, health checks, and test runs).",
     "total_outbound_requests": 358,
     "registry_requests": 262,
     "browser_requests": 96,
@@ -49,6 +50,7 @@
     "cost_budget_headroom_usd": 9.99809
   },
   "evaluations": {
+    "accounting_difference_explanation": "Cumulative accounting totals include all database activity across all sessions (358 requests, 20 model calls, $0.00191 cost). In contrast, the live_100_company_run totals represent strictly the isolated resource usage recorded during that single 100-company batch execution (356 requests, 18 model calls, $0.00171 cost).",
     "cached_100_company_run": {
       "results_file": "reports/batch_100_cached.json",
       "run_id": "batch_cached_1792150099",

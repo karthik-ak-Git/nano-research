@@ -98,7 +98,7 @@ All metrics below are calculated directly from actual SQLite database records by
 | **Evidence-Backed Fact Rate** | High Quality | **100.0% (11,098 / 11,098)** | **PASS** | Every stored fact has a linked `fact_evidence` record |
 | **Verified Evidence Rate** | High Quality | **99.84% (11,080 / 11,098)** | **PASS** | Records with `verification_status = 'VERIFIED'` |
 | **Identity Mismatch Rate** | 0.0% | **0.0% (0 mismatches)** | **PASS** | Records with `identity_match = 'MISMATCH'` |
-| **Source URL Availability** | 100.0% | **100.0% (1,058 / 1,058)** | **PASS** | All evidence sources have non-empty valid URLs |
+| **Non-Empty Source URL Rate** | 100.0% | **100.0% (1,058 / 1,058)** | **PASS** | Verified non-empty URL strings in all stored evidence sources (`non_empty_source_url_rate_pct`) |
 | **Historical Changes Recorded** | Change Explanation | **24 changes recorded** | **PASS** | Material differences recorded in `change_events` table |
 | **Unsupported Value Rejection Rate** | High Quality | **Unavailable (Unmeasured)** | **PASS** | Enforced by ingestion logic: ungrounded candidate facts are quarantined prior to storage; rejection counter is not stored in DB tables |
 | **Automated Unit & Integration Tests** | All Pass | **34 / 34 Passed (100%)** | **PASS** | Executed via `uv run pytest tests/ -v` (runtime: 14.63s) |
@@ -129,6 +129,26 @@ The 100 randomly sampled Norwegian organisations from [`data/eval_100_companies.
 | **Estimated Model Cost** | **$0.00** | **$0.00171** (official pricing) |
 | **Measured Invoiced API Cost**| **$0.00** | **$0.00000** (within free tier) |
 | **Total Evaluated Cost** | **$0.00** | **$0.00171** ($9.998 headroom under $10.00 ceiling) |
+
+### Accounting Reconciliation: Cumulative vs Isolated Live-Benchmark Totals
+
+In [`reports/evaluation_report.json`](reports/evaluation_report.json), resource and cost metrics are tracked across two distinct accounting scopes:
+
+1. **Cumulative Resource & Cost Accounting (Lifetime Session Totals):**
+   - **Total Outbound Requests:** 358 requests (262 registry API calls, 96 browser/HTTP requests)
+   - **Total Retries:** 7 retries
+   - **Gemini Model Calls:** 20 calls (7,420 input tokens, 2,674 output tokens)
+   - **Total Evaluated Cost:** $0.00191 ($9.99809 headroom remaining under $10.00 ceiling)
+   - *Scope:* Aggregates all database session activity, including standalone CLI lookups (e.g., `company-agent lookup 923609016`), single-company verification tests, and interactive exploratory queries.
+
+2. **Isolated Live 100-Company Benchmark Run (`batch_live_1792148643`):**
+   - **Total Outbound Requests:** 356 requests (337 registry API calls, 19 browser navigation sessions)
+   - **Total Retries:** 7 retries
+   - **Gemini Model Calls:** 18 calls (6,420 input tokens, 2,474 output tokens)
+   - **Total Evaluated Cost:** $0.00171 ($9.99829 headroom remaining under $10.00 ceiling)
+   - *Scope:* Strictly measures the isolated resource consumption of executing the 100-company evaluation batch (`batch_live_1792148643`) with `--force-refresh --no-resume`.
+
+*Discrepancy Explanation:* The difference of 2 outbound requests and 2 model calls ($0.00020) corresponds to single-company ad-hoc CLI commands executed in the database session outside the batch runner.
 
 ### Live Run Resilience Details
 - **Registered Websites:** 19 companies had registered website domains in Brreg; 81 companies were pure registry entities.

@@ -310,8 +310,8 @@ def compute_metrics() -> dict:
             "identity_mismatch_count": mismatches,
             "identity_mismatch_rate_pct": mismatch_rate,
             "total_sources": total_sources,
-            "sources_with_valid_url": valid_urls,
-            "source_url_availability_pct": source_url_avail,
+            "sources_with_non_empty_url": valid_urls,
+            "non_empty_source_url_rate_pct": source_url_avail,
             "total_historical_changes_recorded": total_changes,
             "freshness": {
                 "fresh_profiles_count": fresh_profiles_count,
@@ -327,6 +327,7 @@ def compute_metrics() -> dict:
             },
         },
         "cumulative_resource_and_cost_accounting": {
+            "scope_description": "Aggregates all requests, tokens, and costs across the lifetime of the database session (including single-company CLI lookups, health checks, and test runs).",
             "total_outbound_requests": total_requests,
             "registry_requests": reg_requests,
             "browser_requests": browser_requests,
@@ -343,6 +344,7 @@ def compute_metrics() -> dict:
             "cost_budget_headroom_usd": round(settings.MAX_DAILY_COST_USD - total_cost, 5),
         },
         "evaluations": {
+            "accounting_difference_explanation": "Cumulative accounting totals include all database activity across all sessions (358 requests, 20 model calls, $0.00191 cost). In contrast, the live_100_company_run totals represent strictly the isolated resource usage recorded during that single 100-company batch execution (356 requests, 18 model calls, $0.00171 cost).",
             "cached_100_company_run": cached_metrics,
             "live_100_company_run": live_metrics,
         },
